@@ -1,7 +1,6 @@
 <!DOCTYPE html>
 <html lang="pt-br">
 <head>
-    <meta name="google-site-verification" content="m_B6cdwGFExOObBQfG3kjA25QRR6v0WmHwgQAWtwmX8" />
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Portal David e Pato - Global</title>
@@ -25,6 +24,11 @@
             border-radius: 24px; font-size: 16px; outline: none; box-sizing: border-box;
         }
         input:focus { box-shadow: 0 1px 6px rgba(32,33,36,0.28); }
+
+        /* Abas de Pesquisa */
+        .search-tabs { display: none; margin-top: 20px; gap: 20px; border-bottom: 1px solid #ddd; width: 100%; max-width: 700px; }
+        .tab-link { padding: 10px 5px; cursor: pointer; color: #5f6368; border-bottom: 3px solid transparent; font-size: 14px; font-weight: 500; }
+        .tab-link.active { color: var(--blue); border-bottom: 3px solid var(--blue); }
 
         /* Chips de Histórico Rápido */
         #history-container { 
@@ -53,6 +57,12 @@
         .back-btn { padding: 10px 20px; background: var(--blue); color: white; border: none; border-radius: 5px; cursor: pointer; }
         #viewer-content { flex-grow: 1; overflow-y: auto; padding: 0; }
         
+        /* Grid de Imagens */
+        .image-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 15px; padding: 20px; }
+        .image-card { border-radius: 8px; overflow: hidden; background: #f1f3f4; height: 180px; cursor: pointer; border: 1px solid #eee; }
+        .image-card img { width: 100%; height: 100%; object-fit: cover; transition: 0.3s; }
+        .image-card img:hover { transform: scale(1.05); }
+
         canvas { display: block; margin: 20px auto; border-radius: 12px; box-shadow: 0 8px 30px rgba(0,0,0,0.2); max-width: 95%; }
 
         /* Upgrades */
@@ -61,9 +71,9 @@
 
         /* Estilo da Aba de Histórico */
         .history-list-full { padding: 20px; list-style: none; }
-        .history-list-full li { padding: 10px; border-bottom: 1px solid #eee; cursor: pointer; display: flex; align-items: center; }
+        .history-list-full li { padding: 10px; border-bottom: 1px solid #eee; cursor: pointer; display: flex; align-items: center; justify-content: space-between; }
         .history-list-full li:hover { background: #f9f9f9; }
-        .history-list-full li::before { content: "🕒"; margin-right: 10px; }
+        .btn-delete-item { background: none; border: none; cursor: pointer; color: #EA4335; font-size: 18px; }
 
         @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
     </style>
@@ -77,6 +87,12 @@
     <div class="search-box">
         <input type="text" id="search" placeholder="Pesquisar documentos ou jogos..." onkeypress="if(event.key==='Enter') buscar()">
     </div>
+    
+    <div class="search-tabs" id="tabs-bar">
+        <div class="tab-link active" id="tab-text" onclick="switchTab('text')">🌐 Todos</div>
+        <div class="tab-link" id="tab-images" onclick="switchTab('images')">🖼️ Imagens</div>
+    </div>
+
     <div id="history-container"></div>
     <div class="nav-buttons">
         <button class="btn-action" onclick="abrirJogos()">🕹️ Jogos</button>
@@ -86,6 +102,7 @@
 </div>
 
 <div id="results-list" style="width: 90%; max-width: 700px; margin: 20px auto; display: none;"></div>
+<div id="images-list" style="width: 90%; max-width: 800px; margin: 20px auto; display: none;"></div>
 
 <div id="viewer">
     <div class="viewer-nav">
@@ -93,6 +110,7 @@
             <button class="back-btn" onclick="fechar()">← Voltar</button>
             <strong id="viewer-title" style="margin-left:15px"></strong>
         </div>
+        <div id="viewer-extra-btns"></div>
     </div>
     <div id="viewer-content"></div>
 </div>
@@ -123,55 +141,125 @@
         atualizarHistoricoUI();
     }
 
+    function apagarTodoHistorico() {
+        if(confirm("Tem certeza que deseja apagar todo o histórico?")) {
+            historico = [];
+            localStorage.setItem('dp_history', JSON.stringify(historico));
+            atualizarHistoricoUI();
+            abrirAbaHistorico();
+        }
+    }
+
+    function apagarItemHistorico(termo) {
+        historico = historico.filter(h => h !== termo);
+        localStorage.setItem('dp_history', JSON.stringify(historico));
+        atualizarHistoricoUI();
+        abrirAbaHistorico();
+    }
+
+    function switchTab(type) {
+        const textResults = document.getElementById('results-list');
+        const imageResults = document.getElementById('images-list');
+        const tabText = document.getElementById('tab-text');
+        const tabImages = document.getElementById('tab-images');
+
+        if(type === 'text') {
+            tabText.classList.add('active');
+            tabImages.classList.remove('active');
+            textResults.style.display = 'block';
+            imageResults.style.display = 'none';
+        } else {
+            tabImages.classList.add('active');
+            tabText.classList.remove('active');
+            textResults.style.display = 'none';
+            imageResults.style.display = 'block';
+            buscarImagens();
+        }
+    }
+
     async function buscar() {
         const query = document.getElementById('search').value.trim().toLowerCase();
         if (!query) return;
         salvarBusca(query);
         
         document.getElementById('header').classList.add('minimized');
+        document.getElementById('tabs-bar').style.display = 'flex';
+        
         const list = document.getElementById('results-list');
-        list.style.display = 'block';
+        const imgList = document.getElementById('images-list');
+        
+        // Resetar visualização
+        switchTab('text');
         list.innerHTML = 'Pesquisando...';
+        imgList.innerHTML = ''; // Limpa cache de imagens anterior
 
-        // Verificação de Jogos
-        if(query.includes("snake")) {
-            list.innerHTML = "<h3>Jogo encontrado!</h3>";
-            iniciarSnake(list);
-            return;
-        }
-        if(query.includes("clicker") || query.includes("pato clicker")) {
-            list.innerHTML = "<h3>Jogo encontrado!</h3>";
-            iniciarClicker(list);
-            return;
-        }
-        if(query.includes("flappy")) {
-            list.innerHTML = "<h3>Jogo encontrado!</h3>";
-            iniciarFlappy(list);
-            return;
-        }
+        // Atalhos para jogos
+        if(query.includes("snake")) { list.innerHTML = "<h3>Jogo encontrado!</h3>"; iniciarSnake(list); return; }
+        if(query.includes("clicker")) { list.innerHTML = "<h3>Jogo encontrado!</h3>"; iniciarClicker(list); return; }
+        if(query.includes("flappy")) { list.innerHTML = "<h3>Jogo encontrado!</h3>"; iniciarFlappy(list); return; }
 
         try {
             const response = await fetch(`https://pt.wikipedia.org/w/api.php?action=query&list=search&prop=info&inprop=url&utf8=&format=json&origin=*&srlimit=10&srsearch=${query}`);
             const data = await response.json();
-            list.innerHTML = `<p style="color:gray">Resultados encontrados.</p>`;
+            list.innerHTML = `<p style="color:gray">Resultados da Web:</p>`;
             data.query.search.forEach(res => {
                 const div = document.createElement('div');
                 div.style.marginBottom = "20px";
                 div.innerHTML = `<h3 style="color:#1a0dab;cursor:pointer" onclick="verConteudo('${res.title}')">${res.title}</h3><div>${res.snippet}...</div>`;
                 list.appendChild(div);
             });
-        } catch (e) { list.innerHTML = "Erro ao conectar."; }
+        } catch (e) { list.innerHTML = "Erro ao conectar à pesquisa."; }
+    }
+
+    async function buscarImagens() {
+        const query = document.getElementById('search').value.trim();
+        const imgList = document.getElementById('images-list');
+        
+        if(imgList.innerHTML !== "" && imgList.innerHTML !== 'Carregando imagens...') return;
+        
+        imgList.innerHTML = 'Carregando imagens...';
+        
+        try {
+            // gsrnamespace=6 foca apenas em arquivos de mídia (imagens)
+            const url = `https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=${query}&gsrlimit=30&gsrnamespace=6&prop=imageinfo&iiprop=url|dimensions&format=json&origin=*`;
+            const response = await fetch(url);
+            const data = await response.json();
+            
+            if(data.query && data.query.pages) {
+                imgList.innerHTML = '<div class="image-grid"></div>';
+                const grid = imgList.querySelector('.image-grid');
+                
+                Object.values(data.query.pages).forEach(page => {
+                    if(page.imageinfo && page.imageinfo[0]) {
+                        const imgUrl = page.imageinfo[0].url;
+                        const card = document.createElement('div');
+                        card.className = 'image-card';
+                        card.innerHTML = `<img src="${imgUrl}" loading="lazy" onclick="window.open('${imgUrl}', '_blank')">`;
+                        grid.appendChild(card);
+                    }
+                });
+            } else {
+                imgList.innerHTML = "<p style='padding:20px'>Nenhuma imagem encontrada para este termo.</p>";
+            }
+        } catch (e) { 
+            imgList.innerHTML = "Erro ao carregar galeria de imagens."; 
+        }
     }
 
     function abrirAbaHistorico() {
         const viewer = document.getElementById('viewer');
         const content = document.getElementById('viewer-content');
+        const extraBtns = document.getElementById('viewer-extra-btns');
         document.getElementById('viewer-title').innerText = "Histórico de Pesquisa";
         viewer.classList.add('active');
+        extraBtns.innerHTML = historico.length > 0 ? `<button class="btn-action" style="color:red" onclick="apagarTodoHistorico()">🗑️ Limpar Tudo</button>` : "";
         
         let html = '<ul class="history-list-full">';
         historico.forEach(item => {
-            html += `<li onclick="document.getElementById('search').value='${item}'; fechar(); buscar();">${item}</li>`;
+            html += `<li>
+                        <span onclick="document.getElementById('search').value='${item}'; fechar(); buscar();" style="flex-grow:1">🕒 ${item}</span>
+                        <button class="btn-delete-item" onclick="apagarItemHistorico('${item}')">✕</button>
+                     </li>`;
         });
         html += '</ul>' + (historico.length === 0 ? '<p style="padding:20px">Nenhum histórico disponível.</p>' : '');
         content.innerHTML = html;
@@ -186,12 +274,13 @@
         const response = await fetch(`https://pt.wikipedia.org/w/api.php?action=query&prop=extracts&exintro&explaintext&titles=${titulo}&format=json&origin=*`);
         const data = await response.json();
         const page = Object.values(data.query.pages)[0];
-        content.innerHTML = `<div style="padding:30px"><h1>${page.title}</h1><p>${page.extract}</p></div>`;
+        content.innerHTML = `<div style="padding:30px"><h1>${page.title}</h1><p>${page.extract || 'Sem descrição disponível.'}</p></div>`;
     }
 
     function fechar() {
         clearInterval(gameLoop);
         clearInterval(clickerInterval);
+        document.getElementById('viewer-extra-btns').innerHTML = "";
         document.getElementById('viewer').classList.remove('active');
     }
 
@@ -209,27 +298,24 @@
             </div>`;
     }
 
-    // --- JOGOS (REUTILIZÁVEIS) ---
-
+    // --- CÓDIGO DOS JOGOS (MANTIDOS) ---
     function iniciarSnake(target) {
         clearInterval(gameLoop);
         target.innerHTML = `<div style="text-align:center"><p>Use WASD</p><canvas id="snakeGame" width="400" height="400" style="background:#1a1a1a"></canvas></div>`;
         const canvas = document.getElementById('snakeGame');
         const ctx = canvas.getContext('2d');
-        let box = 20; let d = "RIGHT"; let snake = [{x:10*box, y:10*box}];
+        let box = 20, d = "RIGHT", snake = [{x:10*box, y:10*box}];
         let food = {x:Math.floor(Math.random()*19+1)*box, y:Math.floor(Math.random()*19+1)*box};
-        
         document.onkeydown = (e) => {
             let k = e.key.toLowerCase();
             if(k=="a" && d!="RIGHT") d="LEFT"; else if(k=="w" && d!="DOWN") d="UP";
             else if(k=="d" && d!="LEFT") d="RIGHT"; else if(k=="s" && d!="UP") d="DOWN";
         };
-
         gameLoop = setInterval(() => {
             ctx.fillStyle = "#1a1a1a"; ctx.fillRect(0,0,400,400);
             ctx.fillStyle = "red"; ctx.fillRect(food.x, food.y, box, box);
             snake.forEach((s,i) => { ctx.fillStyle = i==0 ? "yellow" : "white"; ctx.fillRect(s.x, s.y, box-1, box-1); });
-            let sX = snake[0].x; let sY = snake[0].y;
+            let sX = snake[0].x, sY = snake[0].y;
             if(d=="LEFT") sX-=box; if(d=="UP") sY-=box; if(d=="RIGHT") sX+=box; if(d=="DOWN") sY+=box;
             if(sX==food.x && sY==food.y) food={x:Math.floor(Math.random()*19+1)*box, y:Math.floor(Math.random()*19+1)*box}; else snake.pop();
             let head = {x:sX, y:sY};
@@ -241,13 +327,7 @@
     function iniciarClicker(target) {
         clearInterval(clickerInterval);
         let milhos = 0, perClick = 1, auto = 0, costC = 15, costA = 50;
-        target.innerHTML = `
-            <div style="text-align:center; padding:20px">
-                <h2>🌽 <span id="m-count">0</span></h2>
-                <div id="pato-btn" style="font-size:100px; cursor:pointer">🦆</div>
-                <button class="upgrade-card" id="u-c">Clique +1 (Custo: 15)</button>
-                <button class="upgrade-card" id="u-a">Auto +1 (Custo: 50)</button>
-            </div>`;
+        target.innerHTML = `<div style="text-align:center; padding:20px"><h2>🌽 <span id="m-count">0</span></h2><div id="pato-btn" style="font-size:100px; cursor:pointer">🦆</div><button class="upgrade-card" id="u-c">Clique +1 (Custo: 15)</button><button class="upgrade-card" id="u-a">Auto +1 (Custo: 50)</button></div>`;
         const update = () => {
             document.getElementById('m-count').innerText = milhos;
             document.getElementById('u-c').innerText = `Clique +1 (Custo: ${costC})`;
@@ -265,7 +345,7 @@
         const canvas = document.getElementById('flappyCanvas'), ctx = canvas.getContext('2d');
         let bird = {x:50, y:150, v:0, g:0.5}, pipes = [], frame = 0, score = 0, dead = false;
         const loop = () => {
-            if(dead) { ctx.fillText("FIM - CLIQUE", 100, 240); return; }
+            if(dead) { ctx.fillStyle="white"; ctx.fillText("FIM - CLIQUE", 80, 240); return; }
             ctx.fillStyle = "#70c5ce"; ctx.fillRect(0,0,320,480);
             bird.v += bird.g; bird.y += bird.v;
             ctx.font = "30px Arial"; ctx.fillText("🦆", bird.x, bird.y);
